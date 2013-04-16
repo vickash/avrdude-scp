@@ -1,0 +1,33 @@
+#!/bin/bash
+ME=`basename $0`
+HOST=$1
+DEVICE=$2
+FILE=$3
+# Should confirm that all parameters were given and display usage if not.
+
+PROGRAMMER="arduino"
+PART="m328p"
+# Should allow avrdude parameters to be given directly and pass to the remote host.
+
+# Connect to the remote host.
+printf "\\n[$ME] Connecting to remote host...\\n"
+ssh -NfM -o 'ControlPath=~/.ssh/%r@%h:%p.conn' $HOST # $USER@$HOST
+
+# Copy the hex file.
+printf "\\n[$ME] Copying file to remote host...\\n"
+scp -o 'ControlPath=~/.ssh/%r@%h:%p.conn' $FILE $HOST:~ # $USER@$HOST:~
+
+# Upload to the board.
+printf "\\n[$ME] Uploading to board..."
+ssh -o 'ControlPath=~/.ssh/%r@%h:%p.conn' $HOST \
+  "avrdude -V -F -c arduino -p m328p -P $DEVICE -U flash:w:$FILE"
+
+# Delete the file from the remote host.
+printf "[$ME] Deleting file from remote host..."
+ssh -o 'ControlPath=~/.ssh/%r@%h:%p.conn' $HOST "rm ~/$FILE"
+echo 'Done'
+
+# Disconnect from the remote host.
+printf "[$ME] Disconnecting from remote host..."
+ssh -o 'ControlPath=~/.ssh/%r@%h:%p.conn' -O exit $HOST
+echo
