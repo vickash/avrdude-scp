@@ -11,12 +11,15 @@ A shell script that automates the process of copying a compiled .hex file to a r
 
 ## Usage
 
+Works just like `avrdude` except the `-P` option can take an `scp` style path like `user@host:/dev/device_to_flash`.
+
+__Example:__
 ```shell
-avrdude-scp user@host /dev/ttyACM0 my_sketch.hex
+avrdude-scp -V -F -c arduino -p m328p -P user@host:/dev/ttyACM0 -U flash:w:du.hex
 ```
 
-Replace `/dev/ttyACM0` with the device your Arduino is on the remote.
+__Note__: You must give the path to a local file in the `-U` option. The script handles all the `scp` business.
 
 ## Limitations
 
-For now `avrdude` assumes the Arduino programmer and ATMega328p chip.
+Only memory write operations supported.
