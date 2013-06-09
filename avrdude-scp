@@ -17,42 +17,79 @@ function parseRemote {
 }
 
 
-# Get the local path of the hex file to be written.
 function parseMemoryOperation {
+  # Split memory operation into array
   arr=(${1//:/ })
   length=${#arr[@]}
 
-  # Local path to the file.
-  FILE_PATH=${arr[$length-1]}
+  # Determine type of operation
+  case ${arr[1]} in
+    r) MEM_OP_TYPE=0 ;;
+    v) MEM_OP_TYPE=1 ;;
+    w) MEM_OP_TYPE=2 ;;
+  esac
 
-  # Replace the local path with just the filename for after scp.
+  # Path to local file
+  FILE_PATH=${arr[2]}
+
+  # Just use the base filename on remote
   BASE_FILENAME="${FILE_PATH##*/}"
   arr[$length-1]=$BASE_FILENAME
 
-  # Rejoin the array.
+  # Rejoin array and add to params
   SAVE_IFS=$IFS
   IFS=":"
   REMOTE_MEMORY_OPERATION="${arr[*]}"
   IFS=$SAVE_IFS
-
-  # Add it to the params.
   PARAMS="$PARAMS -U $REMOTE_MEMORY_OPERATION"
 }
 
+function connect {
+  printf "\\n[$ME] Connecting to remote host...\\n"
+  ssh -NfM -o 'ControlPath=~/.ssh/%r@%h:%p.conn' $HOST
+}
 
-# Parse the parameters.
+function disconnect {
+  printf "[$ME] Disconnecting from remote host..."
+  ssh -o 'ControlPath=~/.ssh/%r@%h:%p.conn' -O exit $HOST
+  echo
+}
+
+function copyToRemote {
+  printf "\\n[$ME] Copying file to remote host...\\n"
+  scp -o 'ControlPath=~/.ssh/%r@%h:%p.conn' $FILE_PATH $HOST:~
+}
+
+function execute {
+  ssh -o 'ControlPath=~/.ssh/%r@%h:%p.conn' $HOST \
+    "avrdude $PARAMS"
+}
+
+function copyFromRemote {
+  printf "\\n[$ME] Copying file from remote host...\\n"
+  scp -o 'ControlPath=~/.ssh/%r@%h:%p.conn' $HOST:~/$BASE_FILENAME $FILE_PATH 
+}
+
+function delete {
+  printf "[$ME] Deleting file from remote host..."
+  ssh -o 'ControlPath=~/.ssh/%r@%h:%p.conn' $HOST "rm ~/$BASE_FILENAME"
+  echo 'Done'
+}
+
+
+# Parse the parameters
 for i in "$@"; do
-
-  # Catch and handle the parameters we need to exclude/modify for the remote.
   case $i in
     -P) REMOTE_PATH=1; continue ;;
     -U) MEMORY_OPERATION=1; continue
   esac
+
   if [[ $REMOTE_PATH -eq 1 ]]; then
     parseRemote $i
     REMOTE_PATH=0
     continue
   fi
+
   if [[ $MEMORY_OPERATION -eq 1 ]]; then
     parseMemoryOperation $i
     MEMORY_OPERATION=0
@@ -63,28 +100,27 @@ for i in "$@"; do
 done
 
 
-# TODO: Check for all parameters and display usage.
+connect
 
+if [[ $MEM_OP_TYPE -eq 0 ]]; then
+  printf "\\n[$ME] Reading from board..."
+  execute
+  copyFromRemote
+  delete
+fi
 
-# Connect to the remote host.
-printf "\\n[$ME] Connecting to remote host...\\n"
-ssh -NfM -o 'ControlPath=~/.ssh/%r@%h:%p.conn' $HOST
+if [[ $MEM_OP_TYPE -eq 1 ]]; then
+  copyToRemote
+  printf "\\n[$ME] Verifying..."
+  execute
+  delete
+fi
 
-# Copy the hex file.
-printf "\\n[$ME] Copying file to remote host...\\n"
-scp -o 'ControlPath=~/.ssh/%r@%h:%p.conn' $FILE_PATH $HOST:~
+if [[ $MEM_OP_TYPE -eq 2 ]]; then
+  copyToRemote
+  printf "\\n[$ME] Uploading to board..."
+  execute
+  delete
+fi
 
-# Upload to the board.
-printf "\\n[$ME] Uploading to board..."
-ssh -o 'ControlPath=~/.ssh/%r@%h:%p.conn' $HOST \
-  "avrdude $PARAMS"
-
-# Delete the file from the remote host.
-printf "[$ME] Deleting file from remote host..."
-ssh -o 'ControlPath=~/.ssh/%r@%h:%p.conn' $HOST "rm ~/$BASE_FILENAME"
-echo 'Done'
-
-# Disconnect from the remote host.
-printf "[$ME] Disconnecting from remote host..."
-ssh -o 'ControlPath=~/.ssh/%r@%h:%p.conn' -O exit $HOST
-echo
+disconnect
