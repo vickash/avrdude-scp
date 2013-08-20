@@ -19,7 +19,3 @@ avrdude-scp -V -F -c arduino -p m328p -P user@host:/dev/ttyACM0 -U flash:w:du.he
 ```
 
 __Note__: You must give the path to a local file in the `-U` option. The script handles all the `scp` business.
-
-## Limitations
-
-Only memory write operations supported.
