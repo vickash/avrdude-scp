@@ -65,6 +65,12 @@ function execute {
     "avrdude $PARAMS"
 }
 
+function resetBaud {
+  ssh -o 'ControlPath=~/.ssh/%r@%h:%p.conn' $HOST \
+    "stty -F $DEVICE 1200"
+  sleep 1
+}
+
 function copyFromRemote {
   printf "\\n[$ME] Copying file from remote host...\\n"
   scp -o 'ControlPath=~/.ssh/%r@%h:%p.conn' $HOST:~/$BASE_FILENAME $FILE_PATH 
@@ -72,7 +78,8 @@ function copyFromRemote {
 
 function delete {
   printf "[$ME] Deleting file from remote host..."
-  ssh -o 'ControlPath=~/.ssh/%r@%h:%p.conn' $HOST "rm ~/$BASE_FILENAME"
+  ssh -o 'ControlPath=~/.ssh/%r@%h:%p.conn' $HOST \
+    "rm ~/$BASE_FILENAME"
   echo 'Done'
 }
 
@@ -99,8 +106,8 @@ for i in "$@"; do
   PARAMS="$PARAMS $i"
 done
 
-
 connect
+resetBaud
 
 if [[ $MEM_OP_TYPE -eq 0 ]]; then
   printf "\\n[$ME] Reading from board..."
