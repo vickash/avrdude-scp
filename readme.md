@@ -19,12 +19,12 @@ Works just like `avrdude` except the `-P` option can take an 'scp-style' path li
 
 Upload local file "blink.hex" to an Arduino UNO attached to a Raspberry Pi over the network:
 ```shell
-avrdude-scp -V -F -c arduino -p m328p -P pi@raspberrypi:/dev/ttyACM0 -U flash:w:blink.hex
+avrdude-scp -V -F -c arduino -p m328p -P pi@raspberry:/dev/ttyACM0 -U flash:w:blink.hex
 ```
 
 Dump the flash memory from the remote UNO to a local file, "dump.hex":
 ```shell
-avrdude-scp -V -F -c arduino -p m328p -P user@host:/dev/ttyACM0 -U flash:r:dump.hex:r
+avrdude-scp -V -F -c arduino -p m328p -P pi@raspberry:/dev/ttyACM0 -U flash:r:dump.hex:r
 ```
 
 __Note__: The `-U` option works with local file paths, not files on the remote machine. The script handles the copying and cleanup.
