@@ -34,7 +34,7 @@ function parseMemoryOperation {
 
   # Just use the base filename on remote
   BASE_FILENAME="${FILE_PATH##*/}"
-  arr[$length-1]=$BASE_FILENAME
+  arr[2]=$BASE_FILENAME
 
   # Rejoin array and add to params
   SAVE_IFS=$IFS
