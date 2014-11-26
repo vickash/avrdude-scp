@@ -12,10 +12,13 @@ function parseRemote {
   HOST=${arr[0]}
   DEVICE=${arr[1]}
 
-  # Put the device into the params for the remote.
-  PARAMS="$PARAMS -P $DEVICE"
+  if [[ -z "$DEVICE" ]]; then
+    printf "[$ME] Programmer port not specified"
+  else
+    # Put the device into the params for the remote.
+    PARAMS="$PARAMS -P $DEVICE"
+  fi
 }
-
 
 function parseMemoryOperation {
   # Split memory operation into array
@@ -73,7 +76,7 @@ function resetBaud {
 
 function copyFromRemote {
   printf "\\n[$ME] Copying file from remote host...\\n"
-  scp -o 'ControlPath=~/.ssh/%r@%h:%p.conn' $HOST:~/$BASE_FILENAME $FILE_PATH 
+  scp -o 'ControlPath=~/.ssh/%r@%h:%p.conn' $HOST:~/$BASE_FILENAME $FILE_PATH
 }
 
 function delete {
@@ -107,7 +110,10 @@ for i in "$@"; do
 done
 
 connect
-resetBaud
+
+if [[ ! -z "$DEVICE" ]]; then
+  resetBaud
+fi
 
 if [[ $MEM_OP_TYPE -eq 0 ]]; then
   printf "\\n[$ME] Reading from board..."
