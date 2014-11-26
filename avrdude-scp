@@ -12,8 +12,8 @@ function parseRemote {
   HOST=${arr[0]}
   DEVICE=${arr[1]}
 
-  if [ -z "$DEVICE" ]; then
-    printf "\\n[$ME] Programmer port not specified"
+  if [[ -z "$DEVICE" ]]; then
+    printf "[$ME] Programmer port not specified"
   else
     # Put the device into the params for the remote.
     PARAMS="$PARAMS -P $DEVICE"
@@ -110,7 +110,10 @@ for i in "$@"; do
 done
 
 connect
-resetBaud
+
+if [[ ! -z "$DEVICE" ]]; then
+  resetBaud
+fi
 
 if [[ $MEM_OP_TYPE -eq 0 ]]; then
   printf "\\n[$ME] Reading from board..."
