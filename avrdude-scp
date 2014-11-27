@@ -3,6 +3,8 @@ ME=`basename $0`
 HOST=0
 DEVICE=0
 PARAMS=""
+SESSION=$(date +%Y%m%d%H%M%S)_$(cat /dev/urandom | tr -cd [:alnum:] | head -c 8)
+CONTROL_PATH='ControlPath=~/.ssh/%r@%h:%p.conn.'$SESSION
 WORKING_DIR=$(pwd)
 
 
@@ -49,39 +51,39 @@ function parseMemoryOperation {
 
 function connect {
   printf "\\n[$ME] Connecting to remote host...\\n"
-  ssh -NfM -o 'ControlPath=~/.ssh/%r@%h:%p.conn' $HOST
+  ssh -NfM -o $CONTROL_PATH $HOST
 }
 
 function disconnect {
   printf "[$ME] Disconnecting from remote host..."
-  ssh -o 'ControlPath=~/.ssh/%r@%h:%p.conn' -O exit $HOST
+  ssh -o $CONTROL_PATH -O exit $HOST
   echo
 }
 
 function copyToRemote {
   printf "\\n[$ME] Copying file to remote host...\\n"
-  scp -o 'ControlPath=~/.ssh/%r@%h:%p.conn' $FILE_PATH $HOST:~
+  scp -o $CONTROL_PATH $FILE_PATH $HOST:~
 }
 
 function execute {
-  ssh -o 'ControlPath=~/.ssh/%r@%h:%p.conn' $HOST \
+  ssh -o $CONTROL_PATH $HOST \
     "avrdude $PARAMS"
 }
 
 function resetBaud {
-  ssh -o 'ControlPath=~/.ssh/%r@%h:%p.conn' $HOST \
+  ssh -o $CONTROL_PATH $HOST \
     "stty -F $DEVICE 1200"
   sleep 1
 }
 
 function copyFromRemote {
   printf "\\n[$ME] Copying file from remote host...\\n"
-  scp -o 'ControlPath=~/.ssh/%r@%h:%p.conn' $HOST:~/$BASE_FILENAME $FILE_PATH
+  scp -o $CONTROL_PATH $HOST:~/$BASE_FILENAME $FILE_PATH
 }
 
 function delete {
   printf "[$ME] Deleting file from remote host..."
-  ssh -o 'ControlPath=~/.ssh/%r@%h:%p.conn' $HOST \
+  ssh -o $CONTROL_PATH $HOST \
     "rm ~/$BASE_FILENAME"
   echo 'Done'
 }
