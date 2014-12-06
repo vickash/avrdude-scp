@@ -2,8 +2,18 @@
 ME=`basename $0`
 HOST=0
 DEVICE=0
+RESET_BAUD=0
 PARAMS=""
+SESSION=$(date +%Y%m%d%H%M%S)_$(cat /dev/urandom | tr -cd [:alnum:] | head -c 8)
+CONTROL_PATH='ControlPath=~/.ssh/%r@%h:%p.conn.'$SESSION
 WORKING_DIR=$(pwd)
+EXECUTION_ATTEMPTS=1
+FLASH_PATH=""
+FLASH_FILENAME=""
+EEPROM_PATH=""
+EEPROM_FILENAME=""
+PRE_COMMAND=""
+POST_COMMAND=""
 
 
 # Parse the remote path given into a host and device.
@@ -13,11 +23,31 @@ function parseRemote {
   DEVICE=${arr[1]}
 
   if [[ -z "$DEVICE" ]]; then
-    printf "[$ME] Programmer port not specified"
+    printf "[$ME] Programmer port not specified!\\n"
   else
     # Put the device into the params for the remote.
     PARAMS="$PARAMS -P $DEVICE"
   fi
+}
+
+function parsePreCommand {
+  PRE_COMMAND=$@
+}
+
+function parsePostCommand {
+  POST_COMMAND=$@
+}
+
+function parseRetryCommand {
+  EXECUTION_ATTEMPTS=$1+1
+}
+
+function parseProgrammer {
+  if [[ $1 == "arduino" ]]; then
+    # Currently arduino is a special case and runs RESET_BAUD
+    RESET_BAUD=1
+  fi
+  PARAMS="$PARAMS -c $1"
 }
 
 function parseMemoryOperation {
@@ -27,17 +57,26 @@ function parseMemoryOperation {
 
   # Determine type of operation
   case ${arr[1]} in
-    r) MEM_OP_TYPE=0 ;;
-    v) MEM_OP_TYPE=1 ;;
-    w) MEM_OP_TYPE=2 ;;
+    r) MEM_OP_TYPE=1 ;;
+    v) MEM_OP_TYPE=2 ;;
+    w) MEM_OP_TYPE=3 ;;
   esac
 
-  # Path to local file
   FILE_PATH=${arr[2]}
+  FILENAME="${FILE_PATH##*/}"
 
-  # Just use the base filename on remote
-  BASE_FILENAME="${FILE_PATH##*/}"
-  arr[2]=$BASE_FILENAME
+  # Save path to local file and use a session specific filename on remote
+  if [[ ${arr[0]} == "flash" ]]; then
+    FLASH_PATH=$FILE_PATH
+    FLASH_FILENAME=$FILENAME"_"$SESSION
+    FILENAME=$FLASH_FILENAME
+  elif [[ ${arr[0]} == "eeprom" ]]; then
+    EEPROM_PATH=$FILE_PATH
+    EEPROM_FILENAME=$FILENAME"_"$SESSION
+    FILENAME=$EEPROM_FILENAME
+  fi
+
+  arr[2]=$FILENAME
 
   # Rejoin array and add to params
   SAVE_IFS=$IFS
@@ -48,92 +87,228 @@ function parseMemoryOperation {
 }
 
 function connect {
-  printf "\\n[$ME] Connecting to remote host...\\n"
-  ssh -NfM -o 'ControlPath=~/.ssh/%r@%h:%p.conn' $HOST
+  printf "[$ME] Connecting to remote host...\\n"
+  if ! ssh -NfM -o $CONTROL_PATH $HOST; then
+    return 1
+  fi
 }
 
 function disconnect {
-  printf "[$ME] Disconnecting from remote host..."
-  ssh -o 'ControlPath=~/.ssh/%r@%h:%p.conn' -O exit $HOST
-  echo
+  printf "[$ME] Disconnecting from remote host...\\n"
+  ssh -o $CONTROL_PATH -O exit $HOST
 }
 
-function copyToRemote {
-  printf "\\n[$ME] Copying file to remote host...\\n"
-  scp -o 'ControlPath=~/.ssh/%r@%h:%p.conn' $FILE_PATH $HOST:~
+function pre_command {
+  if [[ -n "$PRE_COMMAND" ]]; then
+    printf "[$ME] Executing pre-command $PRE_COMMAND...\\n"
+    ssh -o $CONTROL_PATH $HOST "$PRE_COMMAND"
+  fi
 }
 
 function execute {
-  ssh -o 'ControlPath=~/.ssh/%r@%h:%p.conn' $HOST \
-    "avrdude $PARAMS"
+  for (( i=1; i<=$EXECUTION_ATTEMPTS; i++ )); do
+    printf "[$ME] Attempt $i...\\n"
+    if ssh -o $CONTROL_PATH $HOST "avrdude $PARAMS"; then
+      return
+    else
+      printf "[$ME] Attempt $i failed!\\n"
+    fi
+  done
+  return 1
+}
+
+function post_command {
+  if [[ -n "$POST_COMMAND" ]]; then
+    printf "[$ME] Executing post-command $POST_COMMAND...\\n"
+    ssh -o $CONTROL_PATH $HOST "$POST_COMMAND"
+  fi
 }
 
 function resetBaud {
-  ssh -o 'ControlPath=~/.ssh/%r@%h:%p.conn' $HOST \
-    "stty -F $DEVICE 1200"
+  printf "[$ME] Reseting baudrate...\\n"
+  ssh -o $CONTROL_PATH $HOST "stty -F $DEVICE 1200"
   sleep 1
 }
 
+function copyToRemote {
+  if [[ -n "$FLASH_PATH" ]]; then
+    printf "[$ME] Copying flash file to remote host...\\n"
+    if ! scp -o $CONTROL_PATH $FLASH_PATH $HOST:~/$FLASH_FILENAME; then
+      return 1
+    fi
+  fi
+  if [[ -n "$EEPROM_PATH" ]]; then
+    printf "[$ME] Copying eeprom file to remote host...\\n"
+    scp -o $CONTROL_PATH $EEPROM_PATH $HOST:~/$EEPROM_FILENAME
+  fi
+}
+
 function copyFromRemote {
-  printf "\\n[$ME] Copying file from remote host...\\n"
-  scp -o 'ControlPath=~/.ssh/%r@%h:%p.conn' $HOST:~/$BASE_FILENAME $FILE_PATH
+  if [[ -n "$FLASH_PATH" ]]; then
+    printf "[$ME] Copying flash file from remote host...\\n"
+    if ! scp -o $CONTROL_PATH $HOST:~/$FLASH_FILENAME $FLASH_PATH; then
+      return 1
+    fi
+  fi
+  if [[ -n "$EEPROM_PATH" ]]; then
+    printf "[$ME] Copying eeprom from remote host...\\n"
+    scp -o $CONTROL_PATH $HOST:~/$EEPROM_FILENAME $EEPROM_PATH
+  fi
 }
 
 function delete {
-  printf "[$ME] Deleting file from remote host..."
-  ssh -o 'ControlPath=~/.ssh/%r@%h:%p.conn' $HOST \
-    "rm ~/$BASE_FILENAME"
-  echo 'Done'
+  if [[ -n "$FLASH_PATH" ]]; then
+    printf "[$ME] Deleting flash file from remote host...\\n"
+    ssh -o $CONTROL_PATH $HOST "rm ~/$FLASH_FILENAME"
+  fi
+  if [[ -n "$EEPROM_PATH" ]]; then
+    printf "[$ME] Deleting eeprom file from remote host...\\n"
+    ssh -o $CONTROL_PATH $HOST "rm ~/$EEPROM_FILENAME"
+  fi
 }
 
 
 # Parse the parameters
 for i in "$@"; do
   case $i in
-    -P) REMOTE_PATH=1; continue ;;
-    -U) MEMORY_OPERATION=1; continue
+    -P) CASE_REMOTE_PATH=1; continue ;;
+    -U) CASE_MEMORY_OPERATION=1; continue ;;
+    -c) CASE_PROGRAMMER_OPERATION=1; continue ;;
+    --pre) CASE_PRE_COMMAND=1; continue ;;
+    --post) CASE_POST_COMMAND=1; continue ;;
+    --retry) CASE_RETRY_COMMAND=1; continue ;;
+    *)
+      # Also handle cases where there is no space between the parameter key and value
+      if [[ $i == -P* ]]; then
+        i=${i#-P}
+        parseRemote $i
+      elif [[ $i == -U* ]]; then
+        i=${i#-U}
+        parseMemoryOperation $i
+      elif [[ $i == -c* ]]; then
+        i=${i#-c}
+        parseProgrammer $i
+      elif [[ $i == --pre* ]]; then
+        i=${i#--pre}
+        parsePreCommand $i
+      elif [[ $i == --post* ]]; then
+        i=${i#--post}
+        parsePostCommand $i
+      elif [[ $i == --retry* ]]; then
+        i=${i#--retry}
+        parseRetryCommand $i
+      fi
+      ;;
   esac
 
-  if [[ $REMOTE_PATH -eq 1 ]]; then
+  if [[ $CASE_REMOTE_PATH -eq 1 ]]; then
     parseRemote $i
-    REMOTE_PATH=0
+    CASE_REMOTE_PATH=0
     continue
   fi
 
-  if [[ $MEMORY_OPERATION -eq 1 ]]; then
+  if [[ $CASE_MEMORY_OPERATION -eq 1 ]]; then
     parseMemoryOperation $i
-    MEMORY_OPERATION=0
+    CASE_MEMORY_OPERATION=0
+    continue
+  fi
+
+  if [[ $CASE_PROGRAMMER_OPERATION -eq 1 ]]; then
+    parseProgrammer $i
+    CASE_PROGRAMMER_OPERATION=0
+    continue
+  fi
+
+  if [[ $CASE_PRE_COMMAND -eq 1 ]]; then
+    parsePreCommand $i
+    CASE_PRE_COMMAND=0
+    continue
+  fi
+
+  if [[ $CASE_POST_COMMAND -eq 1 ]]; then
+    parsePostCommand $i
+    CASE_POST_COMMAND=0
+    continue
+  fi
+
+  if [[ $CASE_RETRY_COMMAND -eq 1 ]]; then
+    parseRetryCommand $i
+    CASE_RETRY_COMMAND=0
     continue
   fi
 
   PARAMS="$PARAMS $i"
 done
 
-connect
+#echo "Avrdue parameters $PARAMS"
 
-if [[ ! -z "$DEVICE" ]]; then
-  resetBaud
+result=1
+
+if connect; then
+  if [[ $RESET_BAUD -eq 1 ]]; then
+    resetBaud
+  fi
+
+  # No memory operations, just run avrdude with the provided options
+  if [[ $MEM_OP_TYPE -eq 0 ]]; then
+    if pre_command; then
+      printf "[$ME] Executing avrdude...\\n"
+      if execute; then
+        post_command
+      fi
+    fi
+  fi
+
+  # Read requested from board
+  if [[ $MEM_OP_TYPE -eq 1 ]]; then
+    if pre_command; then
+      printf "[$ME] Reading from board...\\n"
+      if execute; then
+        if post_command; then
+          if copyFromRemote; then
+            result=0
+          fi
+        fi
+      fi
+      delete
+    fi
+  fi
+
+  # Image verification requested
+  if [[ $MEM_OP_TYPE -eq 2 ]]; then
+    if copyToRemote; then
+      if pre_command; then
+        printf "[$ME] Verifying...\\n"
+        if execute; then
+          printf "[$ME] Verification succeeded!"
+          post_command
+          result=0
+        else
+          printf "[$ME] Verification failed!"
+        fi
+      fi
+    fi
+    delete
+  fi
+
+  # Upload to board requested
+  if [[ $MEM_OP_TYPE -eq 3 ]]; then
+    if copyToRemote; then
+      if pre_command; then
+        printf "[$ME] Uploading to board...\\n"
+        if execute; then
+          printf "[$ME] Upload succeeded!\\n"
+          post_command
+          result=0
+        else
+          printf "[$ME] Upload failed!\\n"
+        fi
+      fi
+    fi
+    delete
+  fi
+
+  disconnect
 fi
 
-if [[ $MEM_OP_TYPE -eq 0 ]]; then
-  printf "\\n[$ME] Reading from board..."
-  execute
-  copyFromRemote
-  delete
-fi
-
-if [[ $MEM_OP_TYPE -eq 1 ]]; then
-  copyToRemote
-  printf "\\n[$ME] Verifying..."
-  execute
-  delete
-fi
-
-if [[ $MEM_OP_TYPE -eq 2 ]]; then
-  copyToRemote
-  printf "\\n[$ME] Uploading to board..."
-  execute
-  delete
-fi
-
-disconnect
+exit $result
