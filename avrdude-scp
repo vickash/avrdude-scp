@@ -254,7 +254,9 @@ if connect; then
     if pre_command; then
       printf "[$ME] Executing avrdude...\\n"
       if execute; then
-        post_command
+        if post_command; then
+          result=0
+        fi
       fi
     fi
   fi
