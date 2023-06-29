@@ -1,4 +1,4 @@
-#avrdude-scp
+# avrdude-scp
 
 A shell script wrapper for `avrdude` and `scp` that automates the steps to copy a compiled .hex file to a remote machine and upload it to an Arduino / AVR attached to that machine. Useful for upadating code on Arduinos attached to OpenWrt routers, Raspberry Pis or any other *nix machine.
 
